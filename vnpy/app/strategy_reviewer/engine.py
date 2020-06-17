@@ -90,11 +90,11 @@ class DailySettlement:
         if len(trades) == 0:
             return
 
-        self.date = trades[0].time.date()
+        self.date = trades[0].datetime.date()
         self.vt_symbol = trades[0].vt_symbol
 
         for t in trades:
-            if self.date != t.time.date() or self.vt_symbol != t.vt_symbol:
+            if self.date != t.datetime.date() or self.vt_symbol != t.vt_symbol:
                 continue
 
             self.trades.append(t)
@@ -119,14 +119,14 @@ class Strategy:
         self.name = name
         self.raw_data = datas
         self._skip = auto_skip_daily_opentrade
-        self.raw_data.sort(key=lambda d: d.time)
+        self.raw_data.sort(key=lambda d: d.datetime)
         self.datas = defaultdict(lambda :defaultdict(list))
         self.init_data(auto_skip_daily_opentrade)
 
 
     def init_data(self, skip):
         for d in self.raw_data:
-            self.datas[d.vt_symbol][d.time.date()].append(d)
+            self.datas[d.vt_symbol][d.datetime.date()].append(d)
 
         if skip:
             for symbol, trades_groupby_date in self.datas.items():
@@ -153,14 +153,14 @@ class Strategy:
         if len(self.raw_data) == 0:
             return
 
-        return self.raw_data[0].time
+        return self.raw_data[0].datetime
 
     @property
     def end_datetime(self):
         if len(self.raw_data) == 0:
             return
 
-        return self.raw_data[-1].time
+        return self.raw_data[-1].datetime
 
     @property
     def trade_count(self):

@@ -358,10 +358,10 @@ class MongoManager(BaseDatabaseManager):
             symbol: str=None, exchange: Exchange=None, strategy: str=None) -> Sequence[TradeData]:
         params = {}
         if start is not None:
-            params['time__gte'] = start
+            params['datetime__gte'] = start
 
         if end is not None:
-            params['time__lte'] = end
+            params['datetime__lte'] = end
 
         if symbol is not None:
             params['symbol'] = symbol

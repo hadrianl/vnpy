@@ -278,7 +278,7 @@ class MarketDataChartWidget(ChartWidget):
         for trade in trades:
 
             for _dt, ix in self.dt_ix_map.items():
-                if trade.time < _dt:
+                if trade.datetime < _dt:
                     self.ix_trades_map[ix - 1].append(trade)
                     scatter = self.__trade2scatter(ix - 1, trade)
                     trade_scatters.append(scatter)
@@ -287,7 +287,7 @@ class MarketDataChartWidget(ChartWidget):
         self.trade_scatter.setData(trade_scatters)
 
     def update_trade(self, trade: TradeData):
-        ix = self.dt_ix_map.get(trade.time.replace(second=0))
+        ix = self.dt_ix_map.get(trade.datetime.replace(second=0))
         if ix is not None:
             self.ix_trades_map[ix].append(trade)
             scatter = self.__trade2scatter(ix, trade)
@@ -295,7 +295,7 @@ class MarketDataChartWidget(ChartWidget):
             self.trade_scatter.addPoints([scatter])
 
         for _dt, ix in self.dt_ix_map.items():
-            if trade.time < _dt:
+            if trade.datetime < _dt:
                 self.ix_trades_map[ix - 1].append(trade)
                 scatter = self.__trade2scatter(ix - 1, trade)
                 self.__trade2pos(ix-1, trade)

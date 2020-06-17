@@ -258,7 +258,6 @@ class IbApi(EWrapper):
         self.contracts = {}
 
         self.tick_exchange = {}
-        self.subscribed = set()
 
         self.history_req = None
         self.history_condition = Condition()
@@ -732,11 +731,6 @@ class IbApi(EWrapper):
             self.gateway.write_log(f"不支持的交易所{req.exchange}")
             return
 
-        # Filter duplicate subscribe
-        if req.vt_symbol in self.subscrbied:
-            return
-        self.subscrbied.add(req.vt_symbol)
-
         # Extract ib contract detail
         ib_contract = generate_ib_contract(req.symbol, req.exchange)
         if not ib_contract:
@@ -856,7 +850,9 @@ class IbApi(EWrapper):
         self.history_condition.wait()
         self.history_condition.release()
 
-        history = [h for h in self.history_buf if h.datetime >=req.start]
+        # print(self.history_buf[0], req.start)
+        # history = [h for h in self.history_buf if h.datetime >=req.start]
+        history = self.history_buf
         self.history_buf = []       # Create new buffer list
         self.history_req = None
 
