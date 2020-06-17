@@ -1,7 +1,10 @@
 """
 """
 
+import sys
+import pytz
 from datetime import datetime
+from time import sleep
 
 from vnpy.api.ctp import (
     MdApi,
@@ -25,6 +28,7 @@ from vnpy.api.ctp import (
     THOST_FTDC_OFEN_CloseToday,
     THOST_FTDC_PC_Futures,
     THOST_FTDC_PC_Options,
+    THOST_FTDC_PC_SpotOption,
     THOST_FTDC_PC_Combination,
     THOST_FTDC_CP_CallOptions,
     THOST_FTDC_CP_PutOptions,
@@ -105,6 +109,7 @@ EXCHANGE_CTP2VT = {
 PRODUCT_CTP2VT = {
     THOST_FTDC_PC_Futures: Product.FUTURES,
     THOST_FTDC_PC_Options: Product.OPTION,
+    THOST_FTDC_PC_SpotOption: Product.OPTION,
     THOST_FTDC_PC_Combination: Product.SPREAD
 }
 
@@ -112,6 +117,9 @@ OPTIONTYPE_CTP2VT = {
     THOST_FTDC_CP_CallOptions: OptionType.CALL,
     THOST_FTDC_CP_PutOptions: OptionType.PUT
 }
+
+MAX_FLOAT = sys.float_info.max
+CHINA_TZ = pytz.timezone("Asia/Shanghai")
 
 
 symbol_exchange_map = {}
@@ -155,9 +163,16 @@ class CtpGateway(BaseGateway):
         auth_code = setting["授权编码"]
         product_info = setting["产品信息"]
 
-        if not td_address.startswith("tcp://"):
+        if (
+            (not td_address.startswith("tcp://"))
+            and (not td_address.startswith("ssl://"))
+        ):
             td_address = "tcp://" + td_address
-        if not md_address.startswith("tcp://"):
+
+        if (
+            (not md_address.startswith("tcp://"))
+            and (not md_address.startswith("ssl://"))
+        ):
             md_address = "tcp://" + md_address
 
         self.td_api.connect(td_address, userid, password, brokerid, auth_code, appid, product_info)
@@ -171,7 +186,11 @@ class CtpGateway(BaseGateway):
 
     def send_order(self, req: OrderRequest):
         """"""
-        return self.td_api.send_order(req)
+        if req.type == OrderType.RFQ:
+            vt_orderid = self.td_api.send_rfq(req)
+        else:
+            vt_orderid = self.td_api.send_order(req)
+        return vt_orderid
 
     def cancel_order(self, req: CancelRequest):
         """"""
@@ -208,6 +227,8 @@ class CtpGateway(BaseGateway):
         func()
         self.query_functions.append(func)
 
+        self.md_api.update_date()
+
     def init_query(self):
         """"""
         self.count = 0
@@ -234,6 +255,8 @@ class CtpMdApi(MdApi):
         self.userid = ""
         self.password = ""
         self.brokerid = ""
+
+        self.current_date = datetime.now().strftime("%Y%m%d")
 
     def onFrontConnected(self):
         """
@@ -284,28 +307,52 @@ class CtpMdApi(MdApi):
         if not exchange:
             return
 
-        timestamp = f"{data['ActionDay']} {data['UpdateTime']}.{int(data['UpdateMillisec']/100)}"
+        timestamp = f"{self.current_date} {data['UpdateTime']}.{int(data['UpdateMillisec']/100)}"
+        dt = datetime.strptime(timestamp, "%Y%m%d %H:%M:%S.%f")
+        dt = dt.replace(tzinfo=CHINA_TZ)
 
         tick = TickData(
             symbol=symbol,
             exchange=exchange,
-            datetime=datetime.strptime(timestamp, "%Y%m%d %H:%M:%S.%f"),
+            datetime=dt,
             name=symbol_name_map[symbol],
             volume=data["Volume"],
             open_interest=data["OpenInterest"],
             last_price=data["LastPrice"],
             limit_up=data["UpperLimitPrice"],
             limit_down=data["LowerLimitPrice"],
-            open_price=data["OpenPrice"],
-            high_price=data["HighestPrice"],
-            low_price=data["LowestPrice"],
-            pre_close=data["PreClosePrice"],
-            bid_price_1=data["BidPrice1"],
-            ask_price_1=data["AskPrice1"],
+            open_price=adjust_price(data["OpenPrice"]),
+            high_price=adjust_price(data["HighestPrice"]),
+            low_price=adjust_price(data["LowestPrice"]),
+            pre_close=adjust_price(data["PreClosePrice"]),
+            bid_price_1=adjust_price(data["BidPrice1"]),
+            ask_price_1=adjust_price(data["AskPrice1"]),
             bid_volume_1=data["BidVolume1"],
             ask_volume_1=data["AskVolume1"],
             gateway_name=self.gateway_name
         )
+
+        if data["BidVolume2"] or data["AskVolume2"]:
+            tick.bid_price_2 = adjust_price(data["BidPrice2"])
+            tick.bid_price_3 = adjust_price(data["BidPrice3"])
+            tick.bid_price_4 = adjust_price(data["BidPrice4"])
+            tick.bid_price_5 = adjust_price(data["BidPrice5"])
+
+            tick.ask_price_2 = adjust_price(data["AskPrice2"])
+            tick.ask_price_3 = adjust_price(data["AskPrice3"])
+            tick.ask_price_4 = adjust_price(data["AskPrice4"])
+            tick.ask_price_5 = adjust_price(data["AskPrice5"])
+
+            tick.bid_volume_2 = data["BidVolume2"]
+            tick.bid_volume_3 = data["BidVolume3"]
+            tick.bid_volume_4 = data["BidVolume4"]
+            tick.bid_volume_5 = data["BidVolume5"]
+
+            tick.ask_volume_2 = data["AskVolume2"]
+            tick.ask_volume_3 = data["AskVolume3"]
+            tick.ask_volume_4 = data["AskVolume4"]
+            tick.ask_volume_5 = data["AskVolume5"]
+
         self.gateway.on_tick(tick)
 
     def connect(self, address: str, userid: str, password: str, brokerid: int):
@@ -319,7 +366,7 @@ class CtpMdApi(MdApi):
         # If not connected, then start connection first.
         if not self.connect_status:
             path = get_folder_path(self.gateway_name.lower())
-            self.createFtdcMdApi(str(path) + "\\Md")
+            self.createFtdcMdApi((str(path) + "\\Md").encode("GBK"))
 
             self.registerFront(address)
             self.init()
@@ -357,6 +404,10 @@ class CtpMdApi(MdApi):
         if self.connect_status:
             self.exit()
 
+    def update_date(self):
+        """"""
+        self.current_date = datetime.now().strftime("%Y%m%d")
+
 
 class CtpTdApi(TdApi):
     """"""
@@ -373,7 +424,7 @@ class CtpTdApi(TdApi):
 
         self.connect_status = False
         self.login_status = False
-        self.auth_staus = False
+        self.auth_status = False
         self.login_failed = False
 
         self.userid = ""
@@ -408,7 +459,7 @@ class CtpTdApi(TdApi):
     def onRspAuthenticate(self, data: dict, error: dict, reqid: int, last: bool):
         """"""
         if not error['ErrorID']:
-            self.auth_staus = True
+            self.auth_status = True
             self.gateway.write_log("交易服务器授权验证成功")
             self.login()
         else:
@@ -471,54 +522,62 @@ class CtpTdApi(TdApi):
         """
         self.gateway.write_log("结算信息确认成功")
 
-        self.reqid += 1
-        self.reqQryInstrument({}, self.reqid)
+        while True:
+            self.reqid += 1
+            n = self.reqQryInstrument({}, self.reqid)
+
+            if not n:
+                break
+            else:
+                sleep(1)
 
     def onRspQryInvestorPosition(self, data: dict, error: dict, reqid: int, last: bool):
         """"""
         if not data:
             return
 
-        # Get buffered position object
-        key = f"{data['InstrumentID'], data['PosiDirection']}"
-        position = self.positions.get(key, None)
-        if not position:
-            position = PositionData(
-                symbol=data["InstrumentID"],
-                exchange=symbol_exchange_map[data["InstrumentID"]],
-                direction=DIRECTION_CTP2VT[data["PosiDirection"]],
-                gateway_name=self.gateway_name
-            )
-            self.positions[key] = position
+        # Check if contract data received
+        if data["InstrumentID"] in symbol_exchange_map:
+            # Get buffered position object
+            key = f"{data['InstrumentID'], data['PosiDirection']}"
+            position = self.positions.get(key, None)
+            if not position:
+                position = PositionData(
+                    symbol=data["InstrumentID"],
+                    exchange=symbol_exchange_map[data["InstrumentID"]],
+                    direction=DIRECTION_CTP2VT[data["PosiDirection"]],
+                    gateway_name=self.gateway_name
+                )
+                self.positions[key] = position
 
-        # For SHFE position data update
-        if position.exchange == Exchange.SHFE:
-            if data["YdPosition"] and not data["TodayPosition"]:
-                position.yd_volume = data["Position"]
-        # For other exchange position data update
-        else:
-            position.yd_volume = data["Position"] - data["TodayPosition"]
+            # For SHFE and INE position data update
+            if position.exchange in [Exchange.SHFE, Exchange.INE]:
+                if data["YdPosition"] and not data["TodayPosition"]:
+                    position.yd_volume = data["Position"]
+            # For other exchange position data update
+            else:
+                position.yd_volume = data["Position"] - data["TodayPosition"]
 
-        # Get contract size (spread contract has no size value)
-        size = symbol_size_map.get(position.symbol, 0)
+            # Get contract size (spread contract has no size value)
+            size = symbol_size_map.get(position.symbol, 0)
 
-        # Calculate previous position cost
-        cost = position.price * position.volume * size
+            # Calculate previous position cost
+            cost = position.price * position.volume * size
 
-        # Update new position volume
-        position.volume += data["Position"]
-        position.pnl += data["PositionProfit"]
+            # Update new position volume
+            position.volume += data["Position"]
+            position.pnl += data["PositionProfit"]
 
-        # Calculate average position price
-        if position.volume and size:
-            cost += data["PositionCost"]
-            position.price = cost / (position.volume * size)
+            # Calculate average position price
+            if position.volume and size:
+                cost += data["PositionCost"]
+                position.price = cost / (position.volume * size)
 
-        # Get frozen volume
-        if position.direction == Direction.LONG:
-            position.frozen += data["ShortFrozen"]
-        else:
-            position.frozen += data["LongFrozen"]
+            # Get frozen volume
+            if position.direction == Direction.LONG:
+                position.frozen += data["ShortFrozen"]
+            else:
+                position.frozen += data["LongFrozen"]
 
         if last:
             for position in self.positions.values():
@@ -559,10 +618,17 @@ class CtpTdApi(TdApi):
 
             # For option only
             if contract.product == Product.OPTION:
-                contract.option_underlying = data["UnderlyingInstrID"],
-                contract.option_type = OPTIONTYPE_CTP2VT.get(data["OptionsType"], None),
-                contract.option_strike = data["StrikePrice"],
-                contract.option_expiry = datetime.strptime(data["ExpireDate"], "%Y%m%d"),
+                # Remove C/P suffix of CZCE option product name
+                if contract.exchange == Exchange.CZCE:
+                    contract.option_portfolio = data["ProductID"][:-1]
+                else:
+                    contract.option_portfolio = data["ProductID"]
+
+                contract.option_underlying = data["UnderlyingInstrID"]
+                contract.option_type = OPTIONTYPE_CTP2VT.get(data["OptionsType"], None)
+                contract.option_strike = data["StrikePrice"]
+                contract.option_index = str(data["StrikePrice"])
+                contract.option_expiry = datetime.strptime(data["ExpireDate"], "%Y%m%d")
 
             self.gateway.on_contract(contract)
 
@@ -596,6 +662,10 @@ class CtpTdApi(TdApi):
         order_ref = data["OrderRef"]
         orderid = f"{frontid}_{sessionid}_{order_ref}"
 
+        timestamp = f"{data['InsertDate']} {data['InsertTime']}"
+        dt = datetime.strptime(timestamp, "%Y%m%d %H:%M:%S")
+        dt = dt.replace(tzinfo=CHINA_TZ)
+
         order = OrderData(
             symbol=symbol,
             exchange=exchange,
@@ -607,7 +677,7 @@ class CtpTdApi(TdApi):
             volume=data["VolumeTotalOriginal"],
             traded=data["VolumeTraded"],
             status=STATUS_CTP2VT[data["OrderStatus"]],
-            time=data["InsertTime"],
+            datetime=dt,
             gateway_name=self.gateway_name
         )
         self.gateway.on_order(order)
@@ -626,6 +696,10 @@ class CtpTdApi(TdApi):
 
         orderid = self.sysid_orderid_map[data["OrderSysID"]]
 
+        timestamp = f"{data['TradeDate']} {data['TradeTime']}"
+        dt = datetime.strptime(timestamp, "%Y%m%d %H:%M:%S")
+        dt = dt.replace(tzinfo=CHINA_TZ)
+
         trade = TradeData(
             symbol=symbol,
             exchange=exchange,
@@ -635,10 +709,19 @@ class CtpTdApi(TdApi):
             offset=OFFSET_CTP2VT[data["OffsetFlag"]],
             price=data["Price"],
             volume=data["Volume"],
-            time=data["TradeTime"],
+            datetime=dt,
             gateway_name=self.gateway_name
         )
         self.gateway.on_trade(trade)
+
+    def onRspForQuoteInsert(self, data: dict, error: dict, reqid: int, last: bool):
+        """"""
+        if not error["ErrorID"]:
+            symbol = data["InstrumentID"]
+            msg = f"{symbol}询价请求发送成功"
+            self.gateway.write_log(msg)
+        else:
+            self.gateway.write_error("询价请求发送失败", error)
 
     def connect(
         self,
@@ -662,7 +745,7 @@ class CtpTdApi(TdApi):
 
         if not self.connect_status:
             path = get_folder_path(self.gateway_name.lower())
-            self.createFtdcTraderApi(str(path) + "\\Td")
+            self.createFtdcTraderApi((str(path) + "\\Td").encode("GBK"))
 
             self.subscribePrivateTopic(0)
             self.subscribePublicTopic(0)
@@ -715,11 +798,11 @@ class CtpTdApi(TdApi):
         """
         Send new order.
         """
-        self.order_ref += 1
-
         if req.offset not in OFFSET_VT2CTP:
             self.gateway.write_log("请选择开平方向")
             return ""
+
+        self.order_ref += 1
 
         ctp_req = {
             "InstrumentID": req.symbol,
@@ -780,6 +863,26 @@ class CtpTdApi(TdApi):
         self.reqid += 1
         self.reqOrderAction(ctp_req, self.reqid)
 
+    def send_rfq(self, req: OrderRequest) -> str:
+        """"""
+        self.order_ref += 1
+
+        ctp_req = {
+            "InstrumentID": req.symbol,
+            "ExchangeID": req.exchange.value,
+            "ForQuoteRef": str(self.order_ref),
+            "BrokerID": self.brokerid,
+            "InvestorID": self.userid
+        }
+
+        self.reqid += 1
+        self.reqForQuoteInsert(ctp_req, self.reqid)
+
+        orderid = f"{self.frontid}_{self.sessionid}_{self.order_ref}"
+        vt_orderid = f"{self.gateway_name}.{orderid}"
+
+        return vt_orderid
+
     def query_account(self):
         """
         Query account balance data.
@@ -806,3 +909,10 @@ class CtpTdApi(TdApi):
         """"""
         if self.connect_status:
             self.exit()
+
+
+def adjust_price(price: float) -> float:
+    """"""
+    if price == MAX_FLOAT:
+        price = 0
+    return price

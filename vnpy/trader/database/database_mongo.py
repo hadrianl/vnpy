@@ -1,13 +1,13 @@
 from datetime import datetime
-from dateutil import parser
 from enum import Enum
-from typing import Optional, Sequence
+from typing import Optional, Sequence, List
 
 from mongoengine import DateTimeField, Document, FloatField, StringField, connect
 
 from vnpy.trader.constant import Exchange, Interval, Direction, Offset
 from vnpy.trader.object import BarData, TickData, TradeData
-from .database import BaseDatabaseManager, Driver
+
+from .database import BaseDatabaseManager, Driver, DB_TZ
 
 
 def init(_: Driver, settings: dict):
@@ -90,7 +90,7 @@ class DbBarData(Document):
         bar = BarData(
             symbol=self.symbol,
             exchange=Exchange(self.exchange),
-            datetime=self.datetime,
+            datetime=self.datetime.replace(tzinfo=DB_TZ),
             interval=Interval(self.interval),
             volume=self.volume,
             open_interest=self.open_interest,
@@ -218,7 +218,7 @@ class DbTickData(Document):
         tick = TickData(
             symbol=self.symbol,
             exchange=Exchange(self.exchange),
-            datetime=self.datetime,
+            datetime=self.datetime.replace(tzinfo=DB_TZ),
             name=self.name,
             volume=self.volume,
             open_interest=self.open_interest,
@@ -271,7 +271,7 @@ class DbTradeData(Document):
     offset: str = StringField()
     price: float = FloatField()
     volume: float = FloatField()
-    time: datetime = DateTimeField()
+    datetime: datetime = DateTimeField()
     orderRef: str = StringField()
 
     meta = {
@@ -297,7 +297,7 @@ class DbTradeData(Document):
         db_trade.offset = trade.offset.value
         db_trade.price = trade.price
         db_trade.volume = trade.volume
-        db_trade.time = parser.parse(trade.time) if isinstance(trade.time, str) else trade.time
+        db_trade.datetime = trade.datetime
         db_trade.orderRef = trade.orderRef
 
         return db_trade
@@ -313,7 +313,7 @@ class DbTradeData(Document):
             price=self.price,
             volume=self.volume,
             # time=self.time if isinstance(self.time, str) else self.time.strftime("%Y%m%d  %H:%M:%S"),
-            time=self.time,
+            datetime=self.datetime,
             orderRef=self.orderRef,
             gateway_name="DB"
         )
@@ -378,11 +378,15 @@ class MongoManager(BaseDatabaseManager):
         return data
 
     @staticmethod
-    def to_update_param(d):
-        return {
+    def to_update_param(d) -> dict:
+        dt = d.datetime.astimezone(DB_TZ)
+        d.datetime = dt.replace(tzinfo=None)
+
+        param = {
             "set__" + k: v.value if isinstance(v, Enum) else v
             for k, v in d.__dict__.items()
         }
+        return param
 
     def save_bar_data(self, datas: Sequence[BarData]):
         for d in datas:
@@ -416,7 +420,7 @@ class MongoManager(BaseDatabaseManager):
             (
                 DbTradeData.objects(
                     symbol=d.symbol, exchange=d.exchange.value,
-                    time=parser.parse(d.time) if isinstance(d.time, str) else d.time,
+                    time=d.datetime,
                     strategy="" if strategy is None else strategy
                 ).update_one(upsert=True, **updates)
             )
@@ -425,8 +429,28 @@ class MongoManager(BaseDatabaseManager):
         self, symbol: str, exchange: "Exchange", interval: "Interval"
     ) -> Optional["BarData"]:
         s = (
-            DbBarData.objects(symbol=symbol, exchange=exchange.value)
+            DbBarData.objects(
+                symbol=symbol,
+                exchange=exchange.value,
+                interval=interval.value
+            )
             .order_by("-datetime")
+            .first()
+        )
+        if s:
+            return s.to_bar()
+        return None
+
+    def get_oldest_bar_data(
+        self, symbol: str, exchange: "Exchange", interval: "Interval"
+    ) -> Optional["BarData"]:
+        s = (
+            DbBarData.objects(
+                symbol=symbol,
+                exchange=exchange.value,
+                interval=interval.value
+            )
+            .order_by("+datetime")
             .first()
         )
         if s:
@@ -447,6 +471,47 @@ class MongoManager(BaseDatabaseManager):
 
     def get_all_strategy(self):
         return DbTradeData.objects.distinct('strategy')
+
+    def get_bar_data_statistics(self) -> List:
+        """"""
+        s = (
+            DbBarData.objects.aggregate({
+                "$group": {
+                    "_id": {
+                        "symbol": "$symbol",
+                        "exchange": "$exchange",
+                        "interval": "$interval",
+                    },
+                    "count": {"$sum": 1}
+                }
+            })
+        )
+
+        result = []
+
+        for d in s:
+            data = d["_id"]
+            data["count"] = d["count"]
+            result.append(data)
+
+        return result
+
+    def delete_bar_data(
+        self,
+        symbol: str,
+        exchange: "Exchange",
+        interval: "Interval"
+    ) -> int:
+        """
+        Delete all bar data with given symbol + exchange + interval.
+        """
+        count = DbBarData.objects(
+            symbol=symbol,
+            exchange=exchange.value,
+            interval=interval.value
+        ).delete()
+
+        return count
 
     def clean(self, symbol: str):
         DbTickData.objects(symbol=symbol).delete()

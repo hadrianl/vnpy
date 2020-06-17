@@ -1,3 +1,5 @@
+six==1.13.0
+wheel
 PyQt5
 pyqtgraph
 dataclasses; python_version<="3.6"
@@ -9,7 +11,7 @@ pymysql
 psycopg2
 mongoengine
 numpy
-pandas==0.24
+pandas==0.24.2
 matplotlib
 seaborn
 futu-api
@@ -20,3 +22,5 @@ ibapi
 deap
 pyzmq
 wmi
+QScintilla
+plotly

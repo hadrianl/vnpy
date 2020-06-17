@@ -10,11 +10,13 @@ import json
 import base64
 import zlib
 from copy import copy
-from datetime import datetime, timedelta
+from datetime import datetime
 from threading import Lock
 from urllib.parse import urlencode
+from typing import Dict
 
 from requests import ConnectionError
+import pytz
 
 from vnpy.api.rest import Request, RestClient
 from vnpy.api.websocket import WebsocketClient
@@ -42,7 +44,7 @@ from vnpy.trader.object import (
     HistoryRequest
 )
 REST_HOST = "https://www.okex.com"
-WEBSOCKET_HOST = "wss://real.okex.com:10442/ws/v3"
+WEBSOCKET_HOST = "wss://real.okex.com:8443/ws/v3"
 
 STATUS_OKEXF2VT = {
     "0": Status.NOTTRADED,
@@ -69,6 +71,8 @@ INTERVAL_VT2OKEXF = {
     Interval.HOUR: "3600",
     Interval.DAILY: "86400",
 }
+
+UTC_TZ = pytz.UTC
 
 
 instruments = set()
@@ -349,7 +353,7 @@ class OkexfRestApi(RestClient):
                 exchange=Exchange.OKEX,
                 name=symbol,
                 product=Product.FUTURES,
-                size=int(instrument_data["trade_increment"]),
+                size=float(instrument_data["contract_val"]),
                 pricetick=float(instrument_data["tick_size"]),
                 history_data=True,
                 gateway_name=self.gateway_name,
@@ -370,7 +374,6 @@ class OkexfRestApi(RestClient):
 
     def on_query_account(self, data, request):
         """"""
-
         for currency, d in data["info"].items():
             account = AccountData(
                 accountid=currency.upper(),
@@ -427,7 +430,7 @@ class OkexfRestApi(RestClient):
                 traded=int(order_data["filled_qty"]),
                 price=float(order_data["price"]),
                 volume=float(order_data["size"]),
-                time=utc_to_local(order_data["timestamp"]).strftime("%H:%M:%S"),
+                datetime=utc_to_local(order_data["timestamp"]),
                 status=STATUS_OKEXF2VT[order_data["status"]],
                 gateway_name=self.gateway_name,
             )
@@ -447,7 +450,7 @@ class OkexfRestApi(RestClient):
 
         order = request.extra
         order.status = Status.REJECTED
-        order.time = datetime.now().strftime("%H:%M:%S.%f")
+        order.datetime = datetime.now(UTC_TZ)
         self.gateway.on_order(order)
         msg = f"委托失败，状态码：{status_code}，信息：{request.response.text}"
         self.gateway.write_log(msg)
@@ -596,7 +599,7 @@ class OkexfWebsocketApi(WebsocketClient):
 
     def __init__(self, gateway):
         """"""
-        super(OkexfWebsocketApi, self).__init__()
+        super().__init__()
         self.ping_interval = 20     # OKEX use 30 seconds for ping
 
         self.gateway = gateway
@@ -609,6 +612,7 @@ class OkexfWebsocketApi(WebsocketClient):
         self.trade_count = 10000
         self.connect_time = 0
 
+        self.subscribed: Dict[str, SubscribeRequest] = {}
         self.callbacks = {}
         self.ticks = {}
 
@@ -637,6 +641,8 @@ class OkexfWebsocketApi(WebsocketClient):
         """
         Subscribe to tick data upate.
         """
+        self.subscribed[req.vt_symbol] = req
+
         tick = TickData(
             symbol=req.symbol,
             exchange=req.exchange,
@@ -740,7 +746,7 @@ class OkexfWebsocketApi(WebsocketClient):
         # Subscribe to account update
         channels = []
         for currency in currencies:
-            if currency != "USD":
+            if currency not in ["USD", "USDT"]:
                 channel = f"futures/account:{currency}"
                 channels.append(channel)
 
@@ -769,6 +775,9 @@ class OkexfWebsocketApi(WebsocketClient):
         if success:
             self.gateway.write_log("Websocket API登录成功")
             self.subscribe_topic()
+
+            for req in list(self.subscribed.values()):
+                self.subscribe(req)
         else:
             self.gateway.write_log("Websocket API登录失败")
 
@@ -779,7 +788,12 @@ class OkexfWebsocketApi(WebsocketClient):
         if not tick:
             return
 
-        tick.last_price = float(d["last"])
+        # Filter last price with 0 value
+        last_price = float(d["last"])
+        if not last_price:
+            return
+
+        tick.last_price = last_price
         tick.high_price = float(d["high_24h"])
         tick.low_price = float(d["low_24h"])
         tick.volume = float(d["volume_24h"])
@@ -798,13 +812,13 @@ class OkexfWebsocketApi(WebsocketClient):
         asks = d["asks"]
         for n, buf in enumerate(bids):
             price, volume, _, __ = buf
-            tick.__setattr__("bid_price_%s" % (n + 1), price)
-            tick.__setattr__("bid_volume_%s" % (n + 1), volume)
+            tick.__setattr__("bid_price_%s" % (n + 1), float(price))
+            tick.__setattr__("bid_volume_%s" % (n + 1), int(volume))
 
         for n, buf in enumerate(asks):
             price, volume, _, __ = buf
-            tick.__setattr__("ask_price_%s" % (n + 1), price)
-            tick.__setattr__("ask_volume_%s" % (n + 1), volume)
+            tick.__setattr__("ask_price_%s" % (n + 1), float(price))
+            tick.__setattr__("ask_volume_%s" % (n + 1), int(volume))
 
         tick.datetime = utc_to_local(d["timestamp"])
         self.gateway.on_tick(copy(tick))
@@ -822,7 +836,7 @@ class OkexfWebsocketApi(WebsocketClient):
             price=float(d["price"]),
             volume=float(d["size"]),
             traded=float(d["filled_qty"]),
-            time=utc_to_local(d["timestamp"]).strftime("%H:%M:%S"),
+            datetime=utc_to_local(d["timestamp"]),
             status=STATUS_OKEXF2VT[d["status"]],
             gateway_name=self.gateway_name,
         )
@@ -844,7 +858,7 @@ class OkexfWebsocketApi(WebsocketClient):
             offset=order.offset,
             price=float(d["last_fill_px"]),
             volume=float(trade_volume),
-            time=order.time,
+            datetime=order.datetime,
             gateway_name=self.gateway_name,
         )
         self.gateway.on_trade(trade)
@@ -867,10 +881,10 @@ class OkexfWebsocketApi(WebsocketClient):
             symbol=d["instrument_id"],
             exchange=Exchange.OKEX,
             direction=Direction.LONG,
-            volume=d["long_qty"],
+            volume=int(d["long_qty"]),
             frozen=float(d["long_qty"]) - float(d["long_avail_qty"]),
-            price=d["long_avg_cost"],
-            pnl=d["realised_pnl"],
+            price=float(d["long_avg_cost"]),
+            pnl=float(d["realised_pnl"]),
             gateway_name=self.gateway_name,
         )
         self.gateway.on_position(pos)
@@ -879,10 +893,10 @@ class OkexfWebsocketApi(WebsocketClient):
             symbol=d["instrument_id"],
             exchange=Exchange.OKEX,
             direction=Direction.SHORT,
-            volume=d["short_qty"],
+            volume=int(d["short_qty"]),
             frozen=float(d["short_qty"]) - float(d["short_avail_qty"]),
-            price=d["short_avg_cost"],
-            pnl=d["realised_pnl"],
+            price=float(d["short_avg_cost"]),
+            pnl=float(d["realised_pnl"]),
             gateway_name=self.gateway_name,
         )
         self.gateway.on_position(pos)
@@ -901,6 +915,6 @@ def get_timestamp():
 
 
 def utc_to_local(timestamp):
-    time = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%fZ")
-    utc_time = time + timedelta(hours=8)
-    return utc_time
+    dt = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%fZ")
+    dt = dt.replace(tzinfo=UTC_TZ)
+    return dt
