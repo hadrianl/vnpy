@@ -14,6 +14,7 @@ from vnpy.trader.constant import (Direction, Offset, OrderType,Interval)
 from vnpy.trader.object import (SubscribeRequest, OrderRequest, LogData, HistoryRequest)
 from vnpy.trader.utility import load_json, save_json
 import datetime as dt
+from tzlocal import get_localzone
 
 
 
@@ -62,7 +63,7 @@ class VisualEngine(BaseEngine):
 
     def get_historical_data(self, contract, end, bar_count, interval):
         total_minutes = {Interval.MINUTE: 1, Interval.HOUR: 60}[interval] * bar_count
-        start = (end if end else dt.datetime.now()) - dt.timedelta(minutes=total_minutes)
+        start = (end if end else dt.datetime.now(get_localzone())) - dt.timedelta(minutes=total_minutes)
         req = HistoryRequest(contract.symbol, contract.exchange,
                              start=start,
                              end=end,
