@@ -155,7 +155,7 @@ class TradeMonitor(BaseMonitor):
         # "offset": {"display": "开平", "cell": EnumCell, "update": False},
         "price": {"display": "价格", "cell": BaseCell, "update": False},
         "volume": {"display": "数量", "cell": BaseCell, "update": False},
-        "time": {"display": "时间", "cell": BaseCell, "update": False},
+        "datetime": {"display": "时间", "cell": BaseCell, "update": False},
         "strategy": {"display": "策略", "cell": BaseCell, "update": False},
         # "gateway_name": {"display": "接口", "cell": BaseCell, "update": False},
     }
@@ -291,8 +291,8 @@ class TradeChartDialog(QtWidgets.QDialog):
         symbol = self.trade_datas[tradeid].symbol
         exchange = self.trade_datas[tradeid].exchange
         trade_datas = [t for t in self.trade_datas.values() if t.symbol == symbol and t.exchange == exchange and t.tradeid in self.available_tradeid]
-        trade_datas.sort(key=lambda t:t.time)
-        time = self.trade_datas[tradeid].time
+        trade_datas.sort(key=lambda t:t.datetime)
+        time = self.trade_datas[tradeid].datetime
         start = time.replace(hour=0, minute=0, second=0) - dt.timedelta(minutes=120)
         # end = min(time.replace(hour=23, minute=59, second=59) + dt.timedelta(minutes=120),
         #           dt.datetime.now())
@@ -470,7 +470,7 @@ class CandleChartDialog(QtWidgets.QDialog):
 
                 last_bar_after_update = chart._manager.get_bar(chart.last_ix)
                 self.chart.clear_trades()
-                self.chart.update_trades([t for t in self.trade_datas if t.time <= last_bar_after_update.datetime])
+                self.chart.update_trades([t for t in self.trade_datas if t.datetime <= last_bar_after_update.datetime])
                 self.chart.update_pos()
                 self.chart.update_pnl()
 

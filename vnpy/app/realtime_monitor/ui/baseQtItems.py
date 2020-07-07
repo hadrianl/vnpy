@@ -17,6 +17,7 @@ from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 from PyQt5 import QtGui, QtCore
 from pyqtgraph.Point import Point
+from tzlocal import get_localzone
 
 # DEFAULT_MA = [5, 10, 30, 60]
 
@@ -179,7 +180,7 @@ class MarketDataChartWidget(ChartWidget):
         holding_pos = self.ix_holding_pos_map[self._cursor._x]
         pos_info_text = f'Pos: {pos[0]}@{pos[1]/pos[0] if pos[0] != 0 else pos[1]:.1f}'
         holding_pos_text = f'Holding: {holding_pos[0]}@{holding_pos[1]/holding_pos[0] if holding_pos[0] != 0 else holding_pos[1]:.1f}'
-        trade_info_text = '\n'.join(f'{t.time}: {"↑" if t.direction == Direction.LONG else "↓"}{t.volume}@{t.price:.1f}' for t in trades)
+        trade_info_text = '\n'.join(f'{t.datetime}: {"↑" if t.direction == Direction.LONG else "↓"}{t.volume}@{t.price:.1f}' for t in trades)
         info.setText('\n'.join([pos_info_text, holding_pos_text, trade_info_text]))
         view = self._cursor._views['candle']
         rect = view.sceneBoundingRect()
@@ -278,7 +279,7 @@ class MarketDataChartWidget(ChartWidget):
         for trade in trades:
 
             for _dt, ix in self.dt_ix_map.items():
-                if trade.datetime < _dt:
+                if trade.datetime.replace(tzinfo=None) < _dt:
                     self.ix_trades_map[ix - 1].append(trade)
                     scatter = self.__trade2scatter(ix - 1, trade)
                     trade_scatters.append(scatter)
