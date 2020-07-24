@@ -16,6 +16,7 @@ class CtaTemplate(ABC):
     author = ""
     parameters = []
     variables = []
+    records = []
 
     def __init__(
         self,
@@ -49,6 +50,14 @@ class CtaTemplate(ABC):
         for name in self.parameters:
             if name in setting:
                 setattr(self, name, setting[name])
+
+    def get_records(self, _dt):
+        strategy_records ={}
+        for name in self.records:
+            strategy_records[name] = getattr(self, name)
+
+        strategy_records['datetime'] = _dt
+        return strategy_records
 
     @classmethod
     def get_class_parameters(cls):

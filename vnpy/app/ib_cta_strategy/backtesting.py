@@ -141,6 +141,8 @@ class BacktestingEngine:
         self.trade_count = 0
         self.trades = {}
 
+        self.records = []
+
         self.logs = []
 
         self.daily_results = {}
@@ -165,6 +167,8 @@ class BacktestingEngine:
 
         self.trade_count = 0
         self.trades.clear()
+
+        self.records.clear()
 
         self.logs.clear()
         self.daily_results.clear()
@@ -759,6 +763,8 @@ class BacktestingEngine:
         self.cross_stop_order()
         self.strategy.on_bar(bar)
 
+        self.records.append(self.strategy.get_records(bar.datetime))
+
         self.update_daily_close(bar.close_price)
 
     def new_tick(self, tick: TickData):
@@ -1118,6 +1124,9 @@ class BacktestingEngine:
         Return all daily result data.
         """
         return list(self.daily_results.values())
+
+    def get_all_records(self):
+        return self.records
 
 
 class DailyResult:

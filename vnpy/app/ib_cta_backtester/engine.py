@@ -6,6 +6,8 @@ from threading import Thread
 from pathlib import Path
 from inspect import getfile
 
+import pandas as pd
+
 from vnpy.event import Event, EventEngine
 from vnpy.trader.engine import BaseEngine, MainEngine
 from vnpy.trader.constant import Interval
@@ -39,6 +41,8 @@ class BacktesterEngine(BaseEngine):
         # Backtesting reuslt
         self.result_df = None
         self.result_statistics = None
+
+        self.records_df = None
 
         # Optimization result
         self.result_values = None
@@ -161,6 +165,7 @@ class BacktesterEngine(BaseEngine):
         self.result_df = engine.calculate_result()
         self.result_statistics = engine.calculate_statistics(output=False)
 
+        self.records_df = pd.DataFrame(engine.get_all_records()).set_index('datetime')
         # Clear thread object handler.
         self.thread = None
 

@@ -1,6 +1,8 @@
 import csv
 from datetime import datetime, timedelta
 from tzlocal import get_localzone
+import random
+from hashlib import sha256
 
 import numpy as np
 import pandas as pd
@@ -1356,7 +1358,7 @@ class TradeResultMonitor(QtWidgets.QDialog):
         tradeData = [t for t in self.trade_values if t.symbol == symbol]
 
 
-        chart = TradeResultVisulizationChart(cur, tradeData, title=f"{self.daily_trade_result.name}交易行情")
+        chart = TradeResultVisulizationChart(cur, tradeData, title=f"{self.daily_trade_result.name}交易行情", parent=self.parent())
         chart.exec_()
 
 class TradeResultVisulizationChart(QtWidgets.QDialog):
@@ -1370,6 +1372,7 @@ class TradeResultVisulizationChart(QtWidgets.QDialog):
         super().__init__(parent)
         self.marketData = marketData
         self.tradeData = tradeData
+        self.record_df: pd.DataFrame = self.parent().backtester_engine.records_df
         self.title = title
         self.init_ui()
 
@@ -1381,6 +1384,26 @@ class TradeResultVisulizationChart(QtWidgets.QDialog):
         vbox = QtWidgets.QVBoxLayout()
         klineWidget = MarketDataChartWidget()
         klineWidget.update_all(self.marketData, self.tradeData, [])
+
+        if not self.record_df.empty:
+            record = self.record_df.asof(klineWidget.dt_ix_map.keys())
+
+
+            ixs = []
+            for _dt in record.index:
+                ixs.append(klineWidget.dt_ix_map[_dt])
+
+            record.index = ixs
+
+            candle = klineWidget.get_plot('candle')
+            for n, s in record.items():
+                c = pg.PlotCurveItem()
+                candle.addItem(c)
+                h = sha256()
+                h.update(n.encode())
+                # c.setData(s.index.values, s.values, pen=random.choice(['g', 'r', 'c', 'm', 'y', 'k', 'w', 'd', 'l', 's']))
+                c.setData(s.index.values, s.values,
+                          pen=pg.Color(int(h.hexdigest(), base=16)))
 
         vbox.addWidget(klineWidget)
 
