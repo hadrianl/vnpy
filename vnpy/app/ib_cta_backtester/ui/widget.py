@@ -73,7 +73,7 @@ class BacktesterManager(QtWidgets.QWidget):
         # Setting Part
         self.class_combo = QtWidgets.QComboBox()
 
-        self.symbol_line = QtWidgets.QLineEdit("359142357.HKFE")
+        self.symbol_line = QtWidgets.QLineEdit("HSI9999.HKFE")
 
         self.interval_combo = QtWidgets.QComboBox()
         for inteval in Interval:
@@ -128,7 +128,7 @@ class BacktesterManager(QtWidgets.QWidget):
         self.daily_button.setEnabled(False)
 
         self.candle_button = QtWidgets.QPushButton("K线图表")
-        self.candle_button.clicked.connect(self.show_candle_chart)
+        self.candle_button.clicked.connect(self.show_candle_chart2)
         self.candle_button.setEnabled(False)
 
         edit_button = QtWidgets.QPushButton("代码编辑")
@@ -167,8 +167,8 @@ class BacktesterManager(QtWidgets.QWidget):
         form.addRow("价格跳动", self.pricetick_line)
         form.addRow("回测资金", self.capital_line)
         form.addRow("合约模式", self.inverse_combo)
-        form.addRow(backtesting_button)
-        form.addRow(daily_result_button)
+        # form.addRow(backtesting_button)
+        # form.addRow(daily_result_button)
 
         result_grid = QtWidgets.QGridLayout()
         result_grid.addWidget(self.trade_button, 0, 0)
@@ -180,6 +180,7 @@ class BacktesterManager(QtWidgets.QWidget):
         left_vbox.addLayout(form)
         left_vbox.addWidget(backtesting_button)
         left_vbox.addWidget(downloading_button)
+        left_vbox.addWidget(daily_result_button)
         left_vbox.addStretch()
         left_vbox.addWidget(self.trade_button)
         left_vbox.addWidget(self.order_button)
@@ -500,6 +501,17 @@ class BacktesterManager(QtWidgets.QWidget):
 
         self.candle_dialog.exec_()
 
+    def show_candle_chart2(self):
+        """"""
+        history = self.backtester_engine.get_history_data()
+
+        trades = self.backtester_engine.get_all_trades()
+
+        # print(self.backtester_engine.strategy_setting)
+        # print(self.backtester_engine.strategy_data)
+        chart = TradeResultVisulizationChart(history, trades, title=f"回测行情", parent=self)
+        chart.exec_()
+
     def edit_strategy_code(self):
         """"""
         class_name = self.class_combo.currentText()
@@ -718,19 +730,25 @@ class BacktesterChart(pg.GraphicsWindow):
             title="账户净值",
             axisItems={"bottom": DateAxis(self.dates, orientation="bottom")}
         )
+        self.balance_plot.showGrid(True, True)
         self.nextRow()
 
         self.drawdown_plot = self.addPlot(
             title="净值回撤",
             axisItems={"bottom": DateAxis(self.dates, orientation="bottom")}
         )
+        self.drawdown_plot.showGrid(True, True)
         self.nextRow()
 
         self.pnl_plot = self.addPlot(
             title="每日盈亏",
             axisItems={"bottom": DateAxis(self.dates, orientation="bottom")}
         )
+        self.pnl_plot.showGrid(True, True)
         self.nextRow()
+
+        self.drawdown_plot.setXLink(self.balance_plot)
+        self.pnl_plot.setXLink(self.balance_plot)
 
         self.distribution_plot = self.addPlot(title="盈亏分布")
 
@@ -1343,22 +1361,18 @@ class TradeResultMonitor(QtWidgets.QDialog):
         self.setLayout(vbox)
 
     def visulize(self, QModelIndex):
-        from vnpy.trader.database.database_mongo import DbBarData
-
+        from vnpy.trader.database import database_manager
         symbol = self.trade_values[QModelIndex.row()].symbol
         exchange = self.trade_values[QModelIndex.row()].exchange
         trade_date: dt.date = self.daily_trade_result.name
         start = dt.datetime(trade_date.year, trade_date.month, trade_date.day)
         end = dt.datetime(trade_date.year, trade_date.month, trade_date.day, 23, 59)
 
-        cur = DbBarData.objects(datetime__gte=start, datetime__lte=end, interval=Interval.MINUTE.value, symbol=symbol, exchange=exchange.value)
-        # marketData_df = pd.DataFrame([[o.datetime, o.open_price, o.high_price, o.low_price, o.close_price, o.volume] for o in cur], columns=['datetime', 'open', 'high', 'low', 'close', 'volume']).set_index('datetime', drop=False)
-        # marketData_df['openInterest'] = 0
+        history = database_manager.load_bar_data(symbol, exchange, Interval.MINUTE, start, end)
 
         tradeData = [t for t in self.trade_values if t.symbol == symbol]
 
-
-        chart = TradeResultVisulizationChart(cur, tradeData, title=f"{self.daily_trade_result.name}交易行情", parent=self.parent())
+        chart = TradeResultVisulizationChart(history, tradeData, title=f"{self.daily_trade_result.name}交易行情", parent=self.parent())
         chart.exec_()
 
 class TradeResultVisulizationChart(QtWidgets.QDialog):
@@ -1367,7 +1381,7 @@ class TradeResultVisulizationChart(QtWidgets.QDialog):
     """
 
     def __init__(
-            self, marketData: pd.DataFrame, tradeData: pd.DataFrame, title='', parent=None):
+            self, marketData, tradeData, title='', parent=None):
         """"""
         super().__init__(parent)
         self.marketData = marketData
@@ -1386,9 +1400,7 @@ class TradeResultVisulizationChart(QtWidgets.QDialog):
         klineWidget.update_all(self.marketData, self.tradeData, [])
 
         if not self.record_df.empty:
-            record = self.record_df.asof(klineWidget.dt_ix_map.keys())
-
-
+            record = self.record_df.asof(klineWidget.dt_ix_map.keys()).fillna(0)
             ixs = []
             for _dt in record.index:
                 ixs.append(klineWidget.dt_ix_map[_dt])
@@ -1401,7 +1413,6 @@ class TradeResultVisulizationChart(QtWidgets.QDialog):
                 candle.addItem(c)
                 h = sha256()
                 h.update(n.encode())
-                # c.setData(s.index.values, s.values, pen=random.choice(['g', 'r', 'c', 'm', 'y', 'k', 'w', 'd', 'l', 's']))
                 c.setData(s.index.values, s.values,
                           pen=pg.Color(int(h.hexdigest(), base=16)))
 

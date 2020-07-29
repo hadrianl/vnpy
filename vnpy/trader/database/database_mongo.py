@@ -313,8 +313,7 @@ class DbTradeData(Document):
             offset=Offset(self.offset),
             price=self.price,
             volume=self.volume,
-            # time=self.time if isinstance(self.time, str) else self.time.strftime("%Y%m%d  %H:%M:%S"),
-            datetime=self.datetime.replace(tzinfo=get_localzone()),
+            datetime=self.datetime.replace(tzinfo=DB_TZ),
             orderRef=self.orderRef,
             gateway_name="DB"
         )
