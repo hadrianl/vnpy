@@ -279,7 +279,7 @@ class MarketDataChartWidget(ChartWidget):
         for trade in trades:
 
             for _dt, ix in self.dt_ix_map.items():
-                if trade.datetime.replace(tzinfo=None) < _dt:
+                if trade.datetime < _dt:
                     self.ix_trades_map[ix - 1].append(trade)
                     scatter = self.__trade2scatter(ix - 1, trade)
                     trade_scatters.append(scatter)

@@ -596,7 +596,7 @@ class IbApi(EWrapper):
         dt = dt.replace(tzinfo=self.local_tz)
 
         trade = TradeData(
-            symbol=str(contract.conId),
+            symbol=generate_symbol(contract),
             exchange=EXCHANGE_IB2VT.get(contract.exchange, contract.exchange),
             orderid=str(execution.orderId),
             tradeid=str(execution.execId),

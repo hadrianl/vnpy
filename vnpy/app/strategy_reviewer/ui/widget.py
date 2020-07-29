@@ -7,6 +7,7 @@
 
 from vnpy.chart import ChartWidget, CandleItem, VolumeItem
 from vnpy.trader.constant import Direction
+from tzlocal import get_localzone
 from vnpy.trader.ui import QtCore, QtWidgets, QtGui
 from vnpy.trader.ui.widget import BaseMonitor, BaseCell, DirectionCell, EnumCell
 from vnpy.trader.database import database_manager
@@ -412,7 +413,7 @@ class CandleChartDialog(QtWidgets.QDialog):
                 self.chart.update_all(history_data, trade_datas, [])
             database_manager.save_bar_data(history_data)
 
-        if len(self.history_data) >0:
+        if len(getattr(self, 'history_data', [])) >0:
             self._end = self.history_data[-1].datetime
 
     def forward(self):
@@ -449,7 +450,7 @@ class CandleChartDialog(QtWidgets.QDialog):
                 start = last_bar.datetime
 
 
-            if start >= dt.datetime.now():
+            if start >= dt.datetime.now(get_localzone()):
                 return
 
             tp = self.interval2timdelta(self._interval)

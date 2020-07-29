@@ -1,6 +1,7 @@
 from datetime import datetime
 from enum import Enum
 from typing import Optional, Sequence, List
+from tzlocal import get_localzone
 
 from mongoengine import DateTimeField, Document, FloatField, StringField, connect
 
@@ -313,7 +314,7 @@ class DbTradeData(Document):
             price=self.price,
             volume=self.volume,
             # time=self.time if isinstance(self.time, str) else self.time.strftime("%Y%m%d  %H:%M:%S"),
-            datetime=self.datetime,
+            datetime=self.datetime.replace(tzinfo=get_localzone()),
             orderRef=self.orderRef,
             gateway_name="DB"
         )
