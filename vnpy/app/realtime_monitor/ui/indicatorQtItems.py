@@ -503,6 +503,108 @@ class RSICurveItem(ChartItem):
         self.br_max = -np.inf
         self.br_min = np.inf
 
+
+class RECORDCurveItem(ChartItem):
+    name = 'record'
+    plot_name = 'indicator'
+    def __init__(self, manager: BarManager):
+        """"""
+        super().__init__(manager)
+        self.records_df = None
+        self.RECORD_COLOR = {}
+        self.last_ix = 0
+        self.br_max = -np.inf
+        self.br_min = np.inf
+        self.last_picture = QtGui.QPicture()
+
+    def set_records(self, records_df):
+        from hashlib import sha256
+        self.records_df = records_df
+        for name in self.records_df.columns:
+            _hash = sha256()
+            _hash.update(name.encode())
+            self.RECORD_COLOR[name] = pg.Color(int(_hash.hexdigest(), base=16))
+
+
+    def _draw_bar_picture(self, ix: int, bar: BarData) -> QtGui.QPicture:
+        """"""
+        # Create objects
+
+        if ix <= self.last_ix:
+            return self.last_picture
+
+        pre_bar = self._manager.get_bar(ix-1)
+
+        if not pre_bar:
+            return self.last_picture
+
+        records_picture = QtGui.QPicture()
+        painter = QtGui.QPainter(records_picture)
+
+        if self.records_df is None or self.records_df.empty:
+            return records_picture
+
+        pre_records = self.records_df.iloc[ix-1]    # self.records_df[pre_bar.datetime]
+        cur_records = self.records_df.iloc[ix]    # self.records_df[bar.datetime]
+
+        for (n, pv), (_, cv) in zip(pre_records.items(), cur_records.items()):
+            rsi_sp = QtCore.QPointF(ix-1, pv)
+            rsi_ep = QtCore.QPointF(ix, cv)
+            self.br_max = max(self.br_max, pv, cv)
+            self.br_min = min(self.br_min, pv, cv)
+            drawPath(painter, rsi_sp, rsi_ep, self.RECORD_COLOR[n])
+
+        # Finish
+        painter.end()
+        self.last_ix = ix
+        self.last_picture = records_picture
+        return records_picture
+
+    def boundingRect(self) -> QtCore.QRectF:
+        """"""
+        rect = QtCore.QRectF(
+            0,
+            self.br_min,
+            len(self._bar_picutures),
+            self.br_max - self.br_min
+        )
+        return rect
+
+    def get_y_range(self, min_ix: int = None, max_ix: int = None) -> Tuple[float, float]:
+        """
+        Get range of y-axis with given x-axis range.
+
+        If min_ix and max_ix not specified, then return range with whole data set.
+        """
+        min_ix = 0 if min_ix is None else min_ix
+        max_ix = self.last_ix if max_ix is None else max_ix
+
+        min_v = np.inf
+        max_v = -np.inf
+
+        if not self.records_df.empty:
+            min_v = min(min_v, self.records_df[min_ix:max_ix].min().min())
+            max_v = max(max_v, self.records_df[min_ix:max_ix].max().max())
+
+        return min_v, max_v
+
+    def get_info_text(self, ix: int) -> str:
+        """
+        Get information text to show by cursor.
+        """
+        text = '\n'.join(f'record {p}: {v:.2f}' for p, v in self.records_df.iloc[ix].items())
+        return f"RECORDS \n{text}"
+
+    def clear_all(self) -> None:
+        """
+        Clear all data in the item.
+        """
+        super().clear_all()
+        self.last_ix = 0
+        self.last_picture = QtGui.QPicture()
+        self.br_max = -np.inf
+        self.br_min = np.inf
+
 class PNLCurveItem(ChartItem):
     name = 'pnl'
     plot_name = 'pnl'

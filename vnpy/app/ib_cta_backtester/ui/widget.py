@@ -1386,13 +1386,14 @@ class TradeResultVisulizationChart(QtWidgets.QDialog):
         super().__init__(parent)
         self.marketData = marketData
         self.tradeData = tradeData
-        self.record_df: pd.DataFrame = self.parent().backtester_engine.records_df
+        self.record_df = self.parent().backtester_engine.records_df if self.parent() else pd.DataFrame()
         self.title = title
         self.init_ui()
 
     def init_ui(self):
         """"""
         from vnpy.app.realtime_monitor.ui.baseQtItems import MarketDataChartWidget
+        from vnpy.app.realtime_monitor.ui.indicatorQtItems import RECORDCurveItem
         self.setWindowTitle(self.title)
         self.resize(1300, 800)
         vbox = QtWidgets.QVBoxLayout()
@@ -1400,21 +1401,44 @@ class TradeResultVisulizationChart(QtWidgets.QDialog):
         klineWidget.update_all(self.marketData, self.tradeData, [])
 
         if not self.record_df.empty:
-            record = self.record_df.asof(klineWidget.dt_ix_map.keys()).fillna(0)
+            record = self.record_df.asof(klineWidget.dt_ix_map.keys())
             ixs = []
             for _dt in record.index:
                 ixs.append(klineWidget.dt_ix_map[_dt])
 
             record.index = ixs
-
+            closes = pd.Series(bar.close_price for bar in klineWidget._manager.get_all_bars())
+            approximate = record.sub(closes, 0).mul(1/closes, 0).ffill(0).mean().abs()
+            is_approximate_candle = approximate < 0.5
             candle = klineWidget.get_plot('candle')
-            for n, s in record.items():
+            for n, s in record.loc[:, is_approximate_candle].items():
+                s = s.fillna(0)
                 c = pg.PlotCurveItem()
                 candle.addItem(c)
                 h = sha256()
                 h.update(n.encode())
                 c.setData(s.index.values, s.values,
                           pen=pg.Color(int(h.hexdigest(), base=16)))
+
+            record_indicator_data = record.loc[:, ~is_approximate_candle]
+            if not record_indicator_data.empty:
+                klineWidget.indicators[RECORDCurveItem.name] = RECORDCurveItem
+                klineWidget.change_indicator(RECORDCurveItem.name)
+                record_plot = klineWidget._plots.get('indicator')
+                record_item = klineWidget._items.get('record')
+                if record_plot and record_item:
+                    record_item.clear_all()
+                    record_item.set_records(record_indicator_data.fillna(0))
+                    record_item.update_history(klineWidget._manager.get_all_bars())
+
+                    min_value, max_value = record_item.get_y_range()
+
+                    record_plot.setLimits(
+                        xMin=-1,
+                        xMax=klineWidget._manager.get_count(),
+                        yMin=min_value,
+                        yMax=max_value
+                    )
 
         vbox.addWidget(klineWidget)
 
