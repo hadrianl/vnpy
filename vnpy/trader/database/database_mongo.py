@@ -367,7 +367,7 @@ class MongoManager(BaseDatabaseManager):
             params['symbol'] = symbol
 
         if exchange is not None:
-            params['exchange'] = exchange
+            params['exchange'] = exchange.value
 
         if strategy is not None:
             params['strategy'] = strategy
