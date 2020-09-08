@@ -165,7 +165,9 @@ class BacktesterEngine(BaseEngine):
         self.result_df = engine.calculate_result()
         self.result_statistics = engine.calculate_statistics(output=False)
 
-        self.records_df = pd.DataFrame(engine.get_all_records()).set_index('datetime')
+        self.records_df = pd.DataFrame(engine.get_all_records())
+        if not self.records_df.empty:
+            self.records_df = self.records_df.set_index('datetime')
         # Clear thread object handler.
         self.thread = None
 
