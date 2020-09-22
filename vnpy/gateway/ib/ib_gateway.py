@@ -258,6 +258,7 @@ class IbApi(EWrapper):
         self.contracts = {}
 
         self.tick_exchange = {}
+        self.subscribed = set()
 
         self.history_req = None
         self.history_condition = Condition()
@@ -378,7 +379,7 @@ class IbApi(EWrapper):
 
         tick = self.ticks[reqId]
         dt = datetime.fromtimestamp(int(value))
-        tick.datetime = dt.replace(tzinfo=self.local_tz)
+        tick.datetime = self.local_tz.localize(dt)
 
         self.gateway.on_tick(copy(tick))
 
@@ -593,7 +594,7 @@ class IbApi(EWrapper):
         super().execDetails(reqId, contract, execution)
 
         dt = datetime.strptime(execution.time, "%Y%m%d  %H:%M:%S")
-        dt = dt.replace(tzinfo=self.local_tz)
+        dt = self.local_tz.localize(dt)
 
         trade = TradeData(
             symbol=generate_symbol(contract),
@@ -628,7 +629,7 @@ class IbApi(EWrapper):
         Callback of history data update.
         """
         dt = datetime.strptime(ib_bar.date, "%Y%m%d %H:%M:%S")
-        dt = dt.replace(tzinfo=self.local_tz)
+        dt = self.local_tz.localize(dt)
 
         bar = BarData(
             symbol=self.history_req.symbol,
@@ -731,6 +732,11 @@ class IbApi(EWrapper):
             self.gateway.write_log(f"不支持的交易所{req.exchange}")
             return
 
+        # Filter duplicate subscribe
+        if req.vt_symbol in self.subscribed:
+            return
+        self.subscribed.add(req.vt_symbol)
+
         # Extract ib contract detail
         ib_contract = generate_ib_contract(req.symbol, req.exchange)
         if not ib_contract:
@@ -819,7 +825,7 @@ class IbApi(EWrapper):
             end = req.end
             end_str = end.strftime("%Y%m%d %H:%M:%S")
         else:
-            end = datetime.now(get_localzone())
+            end = datetime.now(self.local_tz)
             end_str = ""
 
         delta = end - req.start
@@ -850,8 +856,6 @@ class IbApi(EWrapper):
         self.history_condition.wait()
         self.history_condition.release()
 
-        # print(self.history_buf[0], req.start)
-        # history = [h for h in self.history_buf if h.datetime >=req.start]
         history = self.history_buf
         self.history_buf = []       # Create new buffer list
         self.history_req = None

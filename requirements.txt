@@ -1,7 +1,7 @@
 six==1.13.0
 wheel
-PyQt5
-pyqtgraph
+PyQt5==5.14.1
+pyqtgraph==0.10.0
 dataclasses; python_version<="3.6"
 qdarkstyle
 requests
@@ -22,5 +22,6 @@ ibapi
 deap
 pyzmq
 wmi
-QScintilla
+QScintilla==2.11.4
 plotly
+quickfix

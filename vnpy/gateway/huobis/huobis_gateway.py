@@ -923,7 +923,7 @@ class HuobisTradeWebsocketApi(HuobisWebsocketApiBase):
                 symbol=order.symbol,
                 exchange=Exchange.HUOBI,
                 orderid=order.orderid,
-                tradeid=str(d["trade_id"]),
+                tradeid=str(d["id"]),
                 direction=order.direction,
                 offset=order.offset,
                 price=d["trade_price"],
@@ -1110,5 +1110,5 @@ def create_signature(
 def generate_datetime(timestamp: float) -> datetime:
     """"""
     dt = datetime.fromtimestamp(timestamp)
-    dt = dt.replace(tzinfo=CHINA_TZ)
+    dt = CHINA_TZ.localize(dt)
     return dt
