@@ -275,7 +275,7 @@ class BacktestingEngine:
         self.strategy.on_init()
 
         # Use the first [days] of history data for initializing strategy
-        day_count = 0
+        day_count = 1
         ix = 0
 
         for ix, data in enumerate(self.history_data):
@@ -892,6 +892,7 @@ class BacktestingEngine:
                 offset=stop_order.offset,
                 price=stop_order.price,
                 volume=stop_order.volume,
+                traded=stop_order.volume,
                 status=Status.ALLTRADED,
                 gateway_name=self.gateway_name,
                 datetime=self.datetime
