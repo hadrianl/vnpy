@@ -1450,9 +1450,11 @@ class DailyResultMonitor2(QtWidgets.QDialog):
 
         self.init_ui()
 
-    def show_trade_data(self, item):
+    def show_trade_data(self, table, item):
         r = item.row()
-        daily_df = self.daily_df.iloc[r]
+        _dt = table.item(r, 0).text()
+        _dt = dt.date(*map(int, _dt.split('-')))
+        daily_df = self.daily_df.loc[_dt]
         if len(daily_df['trades']) > 0:
             dialog = TradeResultMonitor(
                 daily_df,
@@ -1466,27 +1468,33 @@ class DailyResultMonitor2(QtWidgets.QDialog):
         self.resize(1300, 800)
 
         table = QtWidgets.QTableWidget()
-
+        daily_df = self.daily_df.reset_index()
         table.setColumnCount(18)
-        table.setRowCount(len(self.daily_df))
-        table.setHorizontalHeaderLabels(self.daily_df.columns)
-        table.setVerticalHeaderLabels(str(i) for i in self.daily_df.index)
-        table.verticalHeader().setVisible(True)
+        table.setRowCount(len(daily_df))
+        table.setHorizontalHeaderLabels(daily_df.columns)
+        # table.setVerticalHeaderLabels(str(i) for i in self.daily_df.index)
+        # table.verticalHeader().setVisible(True)
+        table.setSortingEnabled(True)
 
-        for r, (d, s) in enumerate(self.daily_df.iterrows()):
+        for r, (_, s) in enumerate(daily_df.iterrows()):
             for c, (t, v) in enumerate(s.items()):
                 if t == 'trades':
                     cell = QtWidgets.QTableWidgetItem("交易明细")
                     cell.setFlags(QtCore.Qt.ItemIsSelectable |
                                   QtCore.Qt.ItemIsEnabled)
+                elif t == 'date':
+                    cell = QtWidgets.QTableWidgetItem(f'{v}')
+                    cell.setFlags(QtCore.Qt.ItemIsSelectable |
+                                  QtCore.Qt.ItemIsEnabled)
                 else:
-                    cell = QtWidgets.QTableWidgetItem(str(v))
+                    cell = QtWidgets.QTableWidgetItem()
+                    cell.setData(QtCore.Qt.DisplayRole, v)
                     cell.setFlags(QtCore.Qt.ItemIsEnabled)
 
                 cell.setTextAlignment(QtCore.Qt.AlignCenter)
                 table.setItem(r, c, cell)
 
-        table.itemDoubleClicked.connect(self.show_trade_data)
+        table.itemDoubleClicked.connect(lambda item: self.show_trade_data(table, item))
 
         vbox = QtWidgets.QVBoxLayout()
         vbox.addWidget(table)
@@ -1518,6 +1526,7 @@ class TradeResultMonitor(QtWidgets.QDialog):
         table.setRowCount(len(self.trade_values))
         table.setHorizontalHeaderLabels(fields.keys())
         table.verticalHeader().setVisible(False)
+        table.setSortingEnabled(True)
 
         for r, tradeData in enumerate(self.trade_values):
             for c, k in enumerate(fields.keys()):
