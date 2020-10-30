@@ -96,6 +96,9 @@ class InfluxRecorderEngine(BaseEngine):
                 "last": float(tickdata.last_price),
                 "ask": float(tickdata.ask_price_1),
                 "bid": float(tickdata.bid_price_1),
+                "lastvol": float(tickdata.last_volume),
+                "askvol": float(tickdata.ask_volume_1),
+                "bidvol": float(tickdata.bid_volume_1),
                 "volume": tickdata.volume,
             }
         }]

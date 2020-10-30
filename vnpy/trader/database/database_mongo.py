@@ -421,6 +421,7 @@ class MongoManager(BaseDatabaseManager):
                 DbTradeData.objects(
                     symbol=d.symbol, exchange=d.exchange.value,
                     datetime=d.datetime,
+                    tradeid=d.tradeid,
                     strategy="" if strategy is None else strategy
                 ).update_one(upsert=True, **updates)
             )
