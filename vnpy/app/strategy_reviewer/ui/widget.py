@@ -403,15 +403,16 @@ class CandleChartDialog(QtWidgets.QDialog):
         history_data = database_manager.load_bar_data(symbol, exchange, interval, start=start, end=end)
         self.trade_datas = trade_datas
 
-        if len(history_data) > 0 and len(history_data)/ ((end - start).total_seconds() / 60) > 0.7:
-            self.chart.update_all(history_data, trade_datas, [])
-        else:
+        if not (len(history_data) > 0 and len(history_data)/ ((end - start).total_seconds() / 60) > 0.7):
             req = HistoryRequest(symbol, exchange, start, end, interval)
             gateway = self.main_engine.get_gateway('IB')
             if gateway and gateway.api.status:
-                self.history_data = history_data = gateway.query_history(req)
-                self.chart.update_all(history_data, trade_datas, [])
-            database_manager.save_bar_data(history_data)
+                history_data = gateway.query_history(req)
+                database_manager.save_bar_data(history_data)
+                history_data = database_manager.load_bar_data(symbol, exchange, interval, start=start, end=end)
+
+        self.chart.update_all(history_data, trade_datas, [])
+        self.history_data = history_data
 
         if len(getattr(self, 'history_data', [])) >0:
             self._end = self.history_data[-1].datetime
@@ -464,7 +465,8 @@ class CandleChartDialog(QtWidgets.QDialog):
                     gateway = self.main_engine.get_gateway('IB')
                     if gateway and gateway.api.status:
                         history_data = gateway.query_history(req)
-                    database_manager.save_bar_data(history_data)
+                        database_manager.save_bar_data(history_data)
+                        history_data = database_manager.load_bar_data(symbol, exchange, self._interval, start=start, end=end)
 
                 for bar in history_data:
                     self.chart.update_bar(bar)
