@@ -131,6 +131,10 @@ class BacktesterManager(QtWidgets.QWidget):
         self.candle_button.clicked.connect(self.show_candle_chart2)
         self.candle_button.setEnabled(False)
 
+        self.manage_button = QtWidgets.QPushButton("结果管理")
+        self.manage_button.clicked.connect(self.show_manager)
+        self.manage_button.setEnabled(True)
+
         edit_button = QtWidgets.QPushButton("代码编辑")
         edit_button.clicked.connect(self.edit_strategy_code)
 
@@ -150,10 +154,11 @@ class BacktesterManager(QtWidgets.QWidget):
             self.trade_button,
             self.daily_button,
             self.candle_button,
+            self.manage_button,
             edit_button,
             reload_button
         ]:
-            button.setFixedHeight(button.sizeHint().height() * 2)
+            button.setFixedHeight(button.sizeHint().height() * 1.5)
 
         form = QtWidgets.QFormLayout()
         form.addRow("交易策略", self.class_combo)
@@ -181,6 +186,7 @@ class BacktesterManager(QtWidgets.QWidget):
         left_vbox.addWidget(backtesting_button)
         left_vbox.addWidget(downloading_button)
         left_vbox.addWidget(daily_result_button)
+        left_vbox.addWidget(self.manage_button)
         left_vbox.addStretch()
         left_vbox.addWidget(self.trade_button)
         left_vbox.addWidget(self.order_button)
@@ -510,6 +516,11 @@ class BacktesterManager(QtWidgets.QWidget):
         # print(self.backtester_engine.strategy_setting)
         # print(self.backtester_engine.strategy_data)
         chart = TradeResultVisulizationChart(history, trades, title=f"回测行情", parent=self)
+        chart.exec_()
+
+    def show_manager(self):
+
+        chart = ResultManagerChart(self.backtester_engine, self)
         chart.exec_()
 
     def edit_strategy_code(self):
@@ -1628,3 +1639,104 @@ class TradeResultVisulizationChart(QtWidgets.QDialog):
         vbox.addWidget(klineWidget)
 
         self.setLayout(vbox)
+
+class ResultManagerChart(QtWidgets.QDialog):
+    """
+    manage the backtest result, upload, download or delete
+    """
+    def __init__(self, backtester_engine, parent=None):
+        super().__init__(parent)
+        self.backtester_engine = backtester_engine
+        self.backtesting_engine = backtester_engine.backtesting_engine
+
+        self.init_ui()
+        self.show_manager_results()
+
+    def init_ui(self):
+        self.setWindowTitle("策略管理")
+        self.resize(1100, 500)
+
+        self.table = table = QtWidgets.QTableWidget()
+        table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        table.setColumnCount(3)
+        table.setHorizontalHeaderLabels(['name', 'time', 'hash'])
+        table.verticalHeader().setVisible(False)
+        table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+        table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+
+        vbox = QtWidgets.QVBoxLayout()
+        hbox = QtWidgets.QHBoxLayout()
+
+        upload_button = QtWidgets.QPushButton('上传')
+        delete_button = QtWidgets.QPushButton('删除')
+        self.subname_line_edit = QtWidgets.QLineEdit('')
+
+        hbox.addWidget(upload_button)
+        hbox.addWidget(delete_button)
+        hbox.addStretch()
+
+        form = QtWidgets.QFormLayout()
+        # form.addRow(upload_button, delete_button)
+        form.addRow("查询-策略名称：", self.subname_line_edit)
+
+        # vbox.addWidget(upload_button)
+        vbox.addLayout(hbox)
+        vbox.addLayout(form)
+        vbox.addWidget(self.table)
+
+        self.table.cellDoubleClicked.connect(self.download_result)
+        self.subname_line_edit.editingFinished.connect(self.show_manager_results)
+        upload_button.clicked.connect(self.show_upload_dialog)
+        delete_button.clicked.connect(self.show_delete_dialog)
+        self.setLayout(vbox)
+
+    def download_result(self, n):
+        name = self.table.item(n, 0).text()
+        backtester_engine = self.backtester_engine
+        engine = self.backtesting_engine
+        engine.download_result(name)
+        backtester_engine.result_df = engine.calculate_result()
+        backtester_engine.result_statistics = engine.calculate_statistics(output=False)
+
+        backtester_engine.records_df = pd.DataFrame(engine.get_all_records())
+        if not backtester_engine.records_df.empty:
+            backtester_engine.records_df = backtester_engine.records_df.set_index('datetime')
+        # Put backtesting done event
+        event = Event(EVENT_BACKTESTER_BACKTESTING_FINISHED)
+        backtester_engine.event_engine.put(event)
+
+    def show_manager_results(self):
+        subname = self.subname_line_edit.text()
+        ret = self.backtesting_engine.get_results(subname)
+        self.table.clearContents()
+        self.table.setRowCount(len(ret))
+        for i, r in enumerate(ret):
+            for j, n in enumerate(['name', 'time', 'hash']):
+                cell = QtWidgets.QTableWidgetItem(str(r[n]))
+                cell.setTextAlignment(QtCore.Qt.AlignCenter)
+                if j == 0:
+                    cell.setCheckState(QtCore.Qt.Unchecked)
+                self.table.setItem(i, j, cell)
+
+    def show_upload_dialog(self):
+        if not self.backtesting_engine.strategy_class:
+            QtWidgets.QMessageBox.critical(self, '上传', '未找到回测结果，请先回测')
+            return
+
+        strategy_name, ok = QtWidgets.QInputDialog.getText(self, '上传', '名称：', text=self.backtesting_engine.strategy_class.__name__)
+        if ok:
+            self.backtesting_engine.upload_result(strategy_name)
+            self.show_manager_results()
+
+    def show_delete_dialog(self):
+        del_list = []
+        for i in range(self.table.rowCount()):
+            it = self.table.item(i, 0)
+            if it.checkState():
+                del_list.append(it.text())
+
+        if del_list and QtWidgets.QMessageBox.question(self, '删除', f'是否删除回测记录：{",".join(del_list)}') == QtWidgets.QMessageBox.Yes:
+            for n in del_list:
+                self.backtesting_engine.delete_result(n)
+
+            self.show_manager_results()

@@ -7,6 +7,8 @@ from time import time
 import multiprocessing
 import random
 import traceback
+import pickle
+from hashlib import sha256
 
 import numpy as np
 from pandas import DataFrame
@@ -29,7 +31,23 @@ from .base import (
     INTERVAL_DELTA_MAP
 )
 from .template import CtaTemplate
+from mongoengine import DateTimeField, Document, StringField, FileField
 
+
+class DbBacktestInfo(Document):
+    name = StringField(required=True, unique=True)
+    time = DateTimeField()
+    hash = StringField(max_length=64)
+    data = FileField()
+
+    meta = {
+        "indexes": [
+            {
+                "fields": ("name", ),
+                "unique": True,
+            }
+        ]
+    }
 
 # Set deap algo
 creator.create("FitnessMax", base.Fitness, weights=(1.0,))
@@ -520,6 +538,46 @@ class BacktestingEngine:
 
         self.output("策略统计指标计算完成")
         return statistics
+
+    def upload_result(self, name):
+        results = self.__dict__.copy()
+        for k in ['history_data', 'callback', 'output', 'strategy', 'strategy_class']:
+            results.pop(k)
+        print(f'upload: {results.keys()}')
+        data = pickle.dumps(results)
+        h = sha256()
+        h.update(data)
+        # DbBacktestInfo(name=name, time=datetime.now(), hash=h.hexdigest(), data=data).save()
+        new_bc_info = DbBacktestInfo(name=name, time=datetime.now(), hash=h.hexdigest())
+        new_bc_info.data.new_file()
+        new_bc_info.data.write(data)
+        new_bc_info.data.close()
+        new_bc_info.save()
+
+
+    def download_result(self, name):
+        backtest_info = DbBacktestInfo.objects(name=name).first()
+        backtest_info = pickle.loads(backtest_info.data.read())
+
+        self.__dict__.update(backtest_info)
+
+        if not (self.history_data and self.history_data[0].datetime.date() < self.start and self.history_data[-1].datetime.date() > self.end):
+            self.load_data()
+
+    def delete_result(self, name):
+        for del_obj in DbBacktestInfo.objects(name=name):
+            del_obj.data.delete()
+            del_obj.save()
+
+        DbBacktestInfo.objects(name=name).delete()
+
+    def get_results(self, sub_name=None):
+        params = {}
+        if sub_name:
+            params['name__contains'] = sub_name
+
+        ret = DbBacktestInfo.objects(**params).exclude('data')
+        return ret.as_pymongo()
 
     def show_chart(self, df: DataFrame = None):
         """"""
