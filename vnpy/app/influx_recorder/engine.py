@@ -35,7 +35,7 @@ class InfluxRecorderEngine(BaseEngine):
         self.port = 8086
         self.user = ""
         self.password = ""
-        self.thread = Thread()
+        self.thread = Thread(self.run)
         self.queue = Queue(100)
         self.active = False
         self.influx_client: Optional[InfluxDBClient] = None
