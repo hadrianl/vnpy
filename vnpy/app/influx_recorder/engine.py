@@ -69,6 +69,7 @@ class InfluxRecorderEngine(BaseEngine):
         self.influx_client.ping()
         self.influx_client.create_database(self.db_name)
         self.influx_client.create_retention_policy(self.retention_policy_name, '7d', '1', shard_duration='1d')
+        self.active = True
         self.thread.start()
 
     def stop_recorder(self):
