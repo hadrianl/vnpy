@@ -15,6 +15,8 @@ from vnpy.trader.utility import load_json, save_json
 from vnpy.trader.object import LogData
 from vnpy.app.ib_cta_strategy.base import EVENT_CTA_LOG
 from influxdb import InfluxDBClient
+from threading import Thread
+from queue import Queue, Empty
 
 APP_NAME = "InfluxRecorder"
 
@@ -33,10 +35,33 @@ class InfluxRecorderEngine(BaseEngine):
         self.port = 8086
         self.user = ""
         self.password = ""
-
+        self.thread = Thread()
+        self.queue = Queue(100)
+        self.active = False
         self.influx_client: Optional[InfluxDBClient] = None
+        self.handler = {
+        EVENT_TICK: self.process_tick_event,
+        EVENT_TRADE: self.process_trade_event,
+        EVENT_LOG: self.process_log_event,
+        EVENT_CTA_LOG: self.process_cta_log_event,
+        }
 
         self.load_setting()
+
+    def run(self):
+        self.register_event()
+
+        while self.active:
+            try:
+                ev = self.queue.get(timeout=1)
+                self.handler[ev.type](ev)
+            except Empty:
+                continue
+
+            except Exception:
+                self.active = False
+
+        self.unregister_event()
 
     def start_recorder(self, host, port, user, password):
         """"""
@@ -44,11 +69,15 @@ class InfluxRecorderEngine(BaseEngine):
         self.influx_client.ping()
         self.influx_client.create_database(self.db_name)
         self.influx_client.create_retention_policy(self.retention_policy_name, '7d', '1', shard_duration='1d')
-        self.register_event()
+        self.thread.start()
 
     def stop_recorder(self):
         """"""
-        self.unregister_event()
+        self.active = False
+
+        if self.thread.isAlive():
+            self.thread.join()
+
         self.influx_client = None
 
     def load_setting(self):
@@ -71,17 +100,13 @@ class InfluxRecorderEngine(BaseEngine):
 
     def register_event(self):
         """"""
-        self.event_engine.register(EVENT_TICK, self.process_tick_event)
-        self.event_engine.register(EVENT_TRADE, self.process_trade_event)
-        self.event_engine.register(EVENT_LOG, self.process_log_event)
-        self.event_engine.register(EVENT_CTA_LOG, self.process_cta_log_event)
+        for k in self.handler:
+            self.event_engine.register(k, self.queue.put)
 
     def unregister_event(self):
         """"""
-        self.event_engine.unregister(EVENT_TICK, self.process_tick_event)
-        self.event_engine.unregister(EVENT_TRADE, self.process_trade_event)
-        self.event_engine.unregister(EVENT_LOG, self.process_log_event)
-        self.event_engine.unregister(EVENT_CTA_LOG, self.process_cta_log_event)
+        for k in self.handler:
+            self.event_engine.unregister(k, self.queue.put)
 
     def process_tick_event(self, event: Event):
         """"""
@@ -161,4 +186,7 @@ class InfluxRecorderEngine(BaseEngine):
 
     def close(self):
         """"""
-        self.stop_recorder()
+        self.active = False
+
+        if self.thread.isAlive():
+            self.thread.join()

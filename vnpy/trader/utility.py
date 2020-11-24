@@ -208,7 +208,8 @@ class BarGenerator:
             return
 
         # Filter tick data with less intraday trading volume (i.e. older timestamp)
-        if self.last_tick and tick.volume and tick.volume < self.last_tick.volume:
+        # if self.last_tick and tick.volume and tick.volume < self.last_tick.volume:
+        if self.last_tick and tick.datetime < self.last_tick.datetime:
             return
 
         if not self.bar:
