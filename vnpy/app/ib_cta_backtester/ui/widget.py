@@ -1695,7 +1695,8 @@ class ResultManagerChart(QtWidgets.QDialog):
         backtester_engine = self.backtester_engine
         engine = self.backtesting_engine
         engine.download_result(name)
-        backtester_engine.result_df = engine.calculate_result()
+
+        backtester_engine.result_df = engine.daily_df
         backtester_engine.result_statistics = engine.calculate_statistics(output=False)
 
         backtester_engine.records_df = pd.DataFrame(engine.get_all_records())
