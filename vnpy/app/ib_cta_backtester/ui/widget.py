@@ -1658,8 +1658,10 @@ class ResultManagerChart(QtWidgets.QDialog):
 
         self.table = table = QtWidgets.QTableWidget()
         table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-        table.setColumnCount(3)
-        table.setHorizontalHeaderLabels(['name', 'time', 'hash'])
+        table.setColumnCount(4)
+        table.setHorizontalHeaderLabels(['name', 'time', 'hash', 'ref'])
+        table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+        table.verticalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
         table.verticalHeader().setVisible(False)
         table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
@@ -1711,9 +1713,10 @@ class ResultManagerChart(QtWidgets.QDialog):
         ret = self.backtesting_engine.get_results(subname)
         self.table.clearContents()
         self.table.setRowCount(len(ret))
+
         for i, r in enumerate(ret):
-            for j, n in enumerate(['name', 'time', 'hash']):
-                cell = QtWidgets.QTableWidgetItem(str(r[n]))
+            for j, n in enumerate(['name', 'time', 'hash', 'ref']):
+                cell = QtWidgets.QTableWidgetItem(str(r.get(n, '')))
                 cell.setTextAlignment(QtCore.Qt.AlignCenter)
                 if j == 0:
                     cell.setCheckState(QtCore.Qt.Unchecked)
@@ -1724,10 +1727,16 @@ class ResultManagerChart(QtWidgets.QDialog):
             QtWidgets.QMessageBox.critical(self, '上传', '未找到回测结果，请先回测')
             return
 
+        ref, ok = QtWidgets.QInputDialog.getMultiLineText(self, '上传', '备注：')
+        if not ok:
+            return
+
         strategy_name, ok = QtWidgets.QInputDialog.getText(self, '上传', '名称：', text=self.backtesting_engine.strategy_class.__name__)
-        if ok:
-            self.backtesting_engine.upload_result(strategy_name)
-            self.show_manager_results()
+        if not ok:
+            return
+
+        self.backtesting_engine.upload_result(strategy_name, ref=ref)
+        self.show_manager_results()
 
     def show_delete_dialog(self):
         del_list = []

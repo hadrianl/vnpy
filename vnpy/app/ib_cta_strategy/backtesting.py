@@ -9,6 +9,7 @@ import random
 import traceback
 import pickle
 from hashlib import sha256
+import zlib
 
 import numpy as np
 from pandas import DataFrame
@@ -38,6 +39,7 @@ class DbBacktestInfo(Document):
     name = StringField(required=True, unique=True)
     time = DateTimeField()
     hash = StringField(max_length=64)
+    ref = StringField()
     data = FileField()
 
     meta = {
@@ -539,30 +541,28 @@ class BacktestingEngine:
         self.output("策略统计指标计算完成")
         return statistics
 
-    def upload_result(self, name):
+    def upload_result(self, name, ref=''):
         results = self.__dict__.copy()
         for k in ['history_data', 'callback', 'output', 'strategy', 'strategy_class']:
             results.pop(k)
-        print(f'upload: {results.keys()}')
+
         data = pickle.dumps(results)
         h = sha256()
         h.update(data)
         # DbBacktestInfo(name=name, time=datetime.now(), hash=h.hexdigest(), data=data).save()
-        new_bc_info = DbBacktestInfo(name=name, time=datetime.now(), hash=h.hexdigest())
+        new_bc_info = DbBacktestInfo(name=name, time=datetime.now(), hash=h.hexdigest(), ref=ref)
         new_bc_info.data.new_file()
-        new_bc_info.data.write(data)
+        new_bc_info.data.write(zlib.compress(data))
         new_bc_info.data.close()
         new_bc_info.save()
 
 
     def download_result(self, name):
         backtest_info = DbBacktestInfo.objects(name=name).first()
-        backtest_info = pickle.loads(backtest_info.data.read())
+        backtest_info = pickle.loads(zlib.decompress(backtest_info.data.read()))
 
         self.__dict__.update(backtest_info)
 
-        if not (self.history_data and self.history_data[0].datetime.date() < self.start and self.history_data[-1].datetime.date() > self.end):
-            self.load_data()
 
     def delete_result(self, name):
         for del_obj in DbBacktestInfo.objects(name=name):
